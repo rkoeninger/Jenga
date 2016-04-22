@@ -27,7 +27,7 @@ view address (expr, output, env) =
             [ placeholder "Enter a Jenga Expression"
             , value expr
             , on "input" (JD.map (\v -> (v, output, env)) targetValue) (Signal.message address)
-            , onEnter address ("", (toString (eval env [] parsedExpr)), env) -- TODO: get new env
+            , onEnter address env parsedExpr
             , myStyle
             ]
             []
@@ -35,10 +35,12 @@ view address (expr, output, env) =
         , div [ myStyle ] [ text output ]
         ]
 
-onEnter address value =
+onEnter address env parsedExpr =
     on "keydown"
         (JD.customDecoder keyCode is13)
-        (\_ -> Signal.message address value)
+        (\_ ->
+            let (newEnv, newStack) = eval env [] parsedExpr in
+                Signal.message address ("", toString newEnv ++ toString newStack, newEnv))
 
 is13 code = if code == 13 then Ok () else Err "Not the right code"
 
@@ -109,16 +111,18 @@ lookup env sym =
         Nothing -> Debug.crash "Symbol not defined"
 
 initEnv : Env
-initEnv = Dict.fromList
-    [ ("dup",   Primitive dup)
-    , ("drop",  Primitive drop)
-    , ("swap",  Primitive swap)
-    , ("cons",  Primitive cons)
-    , ("consp", Primitive consp)
-    , ("hd",    Primitive hd)
-    , ("tl",    Primitive tl)
-    , ("+",     Primitive add)
+initEnv =
+    [ ("dup",   dup)
+    , ("drop",  drop)
+    , ("swap",  swap)
+    , ("cons",  cons)
+    , ("consp", consp)
+    , ("hd",    hd)
+    , ("tl",    tl)
+    , ("+",     add)
     ]
+    |> List.map (\(sym, f) -> (sym, Primitive f))
+    |> Dict.fromList
 
 isElseSym x =
     case x of
