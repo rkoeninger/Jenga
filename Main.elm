@@ -83,14 +83,16 @@ showValue value =
         JSym name -> name
         JCons (x, y) -> "(" ++ showValue x ++ " " ++ showValue y ++ ")"
 
-type JValue = JNil
-            | JBool Bool
-            | JInt Int
-            | JSym String
-            | JCons (JValue, JValue)
+type JValue =
+      JNil
+    | JBool Bool
+    | JInt Int
+    | JSym String
+    | JCons (JValue, JValue)
 
-type Verb = Primitive (Stack -> Stack)
-          | Defined Line
+type Verb =
+      Primitive (Stack -> Stack)
+    | Defined Line
 
 type alias Stack = List JValue
 
@@ -128,15 +130,17 @@ parse s =
         "nil"   -> JNil
         "true"  -> JBool True
         "false" -> JBool False
-        _       -> String.toInt s |> Result.toMaybe
-                                  |> Maybe.map JInt
-                                  |> Maybe.withDefault (JSym s)
+        _       ->
+            String.toInt s
+            |> Result.toMaybe
+            |> Maybe.map JInt
+            |> Maybe.withDefault (JSym s)
 
 lookup : Env -> String -> Verb
 lookup env name =
     case Dict.get name env of
         Just f -> f
-        Nothing -> Debug.crash "Symbol not defined"
+        Nothing -> Debug.crash ("Symbol not defined: " ++ name)
 
 initEnv : Env
 initEnv =
