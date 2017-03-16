@@ -33,7 +33,7 @@ view address (expr, stack, env) =
             []
         , div [ inputStyle ] [ text reStringedExpr ]
         , div [ statusStyle ] [ showEnv env ]
-        , div [ statusStyle ] [ showStack stack ]
+        , div [ stackStyle ] [ showStack stack ]
         ]
 
 onEnter address env stack parsedExpr =
@@ -55,6 +55,14 @@ inputStyle =
         ]
 
 statusStyle =
+    style
+        [ ("width", "45%")
+        , ("padding", "10px")
+        , ("font-size", "1.5em")
+        , ("display", "inline-block")
+        ]
+
+stackStyle =
     style
         [ ("width", "45%")
         , ("padding", "10px")
@@ -82,6 +90,7 @@ showValue value =
         JInt x -> toString x
         JSym name -> name
         JCons (x, y) -> "(" ++ showValue x ++ " " ++ showValue y ++ ")"
+        JQuote values -> "[" ++ (values |> List.map (((++) " ") << showValue) |> String.join "") ++ " ]"
 
 type JValue =
       JNil
@@ -89,9 +98,10 @@ type JValue =
     | JInt Int
     | JSym String
     | JCons (JValue, JValue)
+    | JQuote Line
 
 type Verb =
-      Primitive (Stack -> Stack)
+      Primitive (Env -> Stack -> (Env, Stack))
     | Defined Line
 
 type alias Stack = List JValue
@@ -104,23 +114,35 @@ eval : Env -> Stack -> Line -> (Env, Stack)
 eval env stack line =
     case line of
         JSym ":" :: JSym name :: restLine -> (define env name restLine, stack)
-        JSym "if" :: restLine ->
-            case stack of
-                JBool True :: restStack -> eval env restStack (ifTrue restLine)
-                JBool False :: restStack -> eval env restStack (ifFalse restLine)
-                _ -> Debug.crash "If expects Bool on top of stack"
+        JSym "[" :: restLine ->
+            let (env, restLine, stack) = collectQuote [] env restLine stack in
+            eval env stack restLine
+        --JSym "if" :: restLine ->
+        --    case stack of
+        --        JBool True :: restStack -> eval env restStack (ifTrue restLine)
+        --        JBool False :: restStack -> eval env restStack (ifFalse restLine)
+        --        _ -> Debug.crash "If expects Bool on top of stack"
         JNil :: restLine -> eval env (JNil :: stack) restLine
         JInt x :: restLine -> eval env (JInt x :: stack) restLine
         JBool x :: restLine -> eval env (JBool x :: stack) restLine
-        JSym name :: restLine -> eval env (apply env stack (lookup env name)) restLine
+        JSym name :: restLine ->
+            let (env, stack) = apply env stack (lookup env name) in
+            eval env stack restLine
+        JQuote xs :: restLine -> eval env (JQuote xs :: stack) restLine
         [] -> (env, stack)
         _ -> Debug.crash "??? Not implemented"
 
-apply : Env -> Stack -> Verb -> Stack
+collectQuote acc env line stack =
+    case line of
+        JSym "]" :: restLine -> (env, restLine, JQuote (List.reverse acc) :: stack)
+        x :: restLine -> collectQuote (x :: acc) env restLine stack
+        _ -> Debug.crash "End quote not found"
+
+apply : Env -> Stack -> Verb -> (Env, Stack)
 apply env stack verb =
     case verb of
-        Primitive f -> f stack
-        Defined line -> eval env stack line |> snd
+        Primitive f -> f env stack
+        Defined line -> eval env stack line
 
 define : Env -> String -> Line -> Env
 define env name line = Dict.insert name (Defined line) env
@@ -160,6 +182,8 @@ initEnv =
     , ("-",     sub)
     , ("*",     mul)
     , ("pos",   pos)
+    , ("if",    branch)
+    , ("eval",  doEval)
     ]
     |> List.map (\(name, f) -> (name, Primitive f))
     |> Dict.fromList
@@ -184,83 +208,94 @@ ifTrue line = takeUntil isElseSym line ++ takeAfter isThenSym line
 -- TODO: this won't (?) work with nested if's
 ifFalse line = takeAfter isElseSym (takeUntil isThenSym line) ++ takeAfter isThenSym line
 
-clear stack =
+clear env stack =
     case stack of
-        _ -> []
+        _ -> (env, [])
 
-dup stack =
+dup env stack =
     case stack of
-        x :: restStack -> x :: x :: restStack
+        x :: restStack -> (env, (x :: x :: restStack))
         _ -> Debug.crash "Stack must have at least 1 item"
 
-drop stack =
+drop env stack =
     case stack of
-        _ :: restStack -> restStack
+        _ :: restStack -> (env, restStack)
         _ -> Debug.crash "Stack must have at least 1 item"
 
-rotr stack =
+rotr env stack =
     case stack of
-        x :: y :: z :: restStack -> z :: x :: y :: restStack
+        x :: y :: z :: restStack -> (env, (z :: x :: y :: restStack))
         _ -> Debug.crash "Stack must have at 3 items"
 
-rotl stack =
+rotl env stack =
     case stack of
-        x :: y :: z :: restStack -> y :: z :: x :: restStack
+        x :: y :: z :: restStack -> (env, (y :: z :: x :: restStack))
         _ -> Debug.crash "Stack must have at 3 items"
 
-swap stack =
+swap env stack =
     case stack of
-        x :: y :: restStack -> y :: x :: restStack
+        x :: y :: restStack -> (env, (y :: x :: restStack))
         _ -> Debug.crash "Stack must have at least 2 items"
 
-swap3 stack =
+swap3 env stack =
     case stack of
-        x :: y :: z :: restStack -> z :: y :: x :: restStack
+        x :: y :: z :: restStack -> (env, (z :: y :: x :: restStack))
         _ -> Debug.crash "Stack must have at least 3 items"
 
-cons stack =
+cons env stack =
     case stack of
-        x :: y :: restStack -> JCons (x, y) :: restStack
+        x :: y :: restStack -> (env, (JCons (x, y) :: restStack))
         _ -> Debug.crash "Stack must have at least 2 items"
 
-consp stack =
+consp env stack =
     case stack of
-        JCons _ :: restStack -> JBool True :: restStack
-        _ :: restStack -> JBool False :: restStack
+        JCons _ :: restStack -> (env, (JBool True :: restStack))
+        _ :: restStack -> (env, (JBool False :: restStack))
         _ -> Debug.crash "Stack must have at least 1 item"
 
-hd stack =
+hd env stack =
     case stack of
-        JCons (x, _) :: restStack -> x :: restStack
+        JCons (x, _) :: restStack -> (env, (x :: restStack))
         _ -> Debug.crash "Stack must have a Cons on top"
 
-tl stack =
+tl env stack =
     case stack of
-        JCons (_, x) :: restStack -> x :: restStack
+        JCons (_, x) :: restStack -> (env, (x :: restStack))
         _ -> Debug.crash "Stack must have a Cons on top"
 
-nilp stack =
+nilp env stack =
     case stack of
-        JNil :: restStack -> JBool True :: restStack
-        _ :: restStack -> JBool False :: restStack
+        JNil :: restStack -> (env, (JBool True :: restStack))
+        _ :: restStack -> (env, (JBool False :: restStack))
         _ -> Debug.crash "Stack must have at least 1 item"
 
-add stack =
+add env stack =
     case stack of
-        JInt x :: JInt y :: restStack -> JInt (y + x) :: restStack
+        JInt x :: JInt y :: restStack -> (env, (JInt (y + x) :: restStack))
         _ -> Debug.crash "Stack must have 2 numbers on top"
 
-sub stack =
+sub env stack =
     case stack of
-        JInt x :: JInt y :: restStack -> JInt (y - x) :: restStack
+        JInt x :: JInt y :: restStack -> (env, (JInt (y - x) :: restStack))
         _ -> Debug.crash "Stack must have 2 numbers on top"
 
-mul stack =
+mul env stack =
     case stack of
-        JInt x :: JInt y :: restStack -> JInt (y * x) :: restStack
+        JInt x :: JInt y :: restStack -> (env, (JInt (y * x) :: restStack))
         _ -> Debug.crash "Stack must have 2 numbers on top"
 
-pos stack =
+pos env stack =
     case stack of
-        JInt x :: restStack -> JBool (x > 0) :: restStack
+        JInt x :: restStack -> (env, (JBool (x > 0) :: restStack))
         _ -> Debug.crash "Stack must have number on top"
+
+branch env stack =
+    case stack of
+        _ :: JQuote t :: JBool True :: restStack -> eval env restStack t
+        JQuote f :: _ :: JBool False :: restStack -> eval env restStack f
+        _ -> Debug.crash "Stack must have Bool|Quote|Quote on top"
+
+doEval env stack =
+    case stack of
+        JQuote line :: restStack -> eval env restStack line
+        _ -> Debug.crash "Stack must have quote on top"
