@@ -11,7 +11,7 @@ import Result
 
 main = StartApp.start { model = ("", [], initEnv), view = view, update = update }
 
-update newState oldState = newState
+update newState _ = newState
 
 view address (expr, stack, env) =
     let parsedExpr =
@@ -87,7 +87,7 @@ showValue value =
     case value of
         JNil -> "nil"
         JBool x -> if x then "true" else "false"
-        JInt x -> toString x
+        JFloat x -> toString x
         JSym name -> name
         JCons (x, y) -> "(" ++ showValue x ++ " " ++ showValue y ++ ")"
         JQuote values -> "[" ++ (values |> List.map (((++) " ") << showValue) |> String.join "") ++ " ]"
@@ -95,7 +95,7 @@ showValue value =
 type JValue =
       JNil
     | JBool Bool
-    | JInt Int
+    | JFloat Float
     | JSym String
     | JCons (JValue, JValue)
     | JQuote Line
@@ -123,7 +123,7 @@ eval env stack line =
         --        JBool False :: restStack -> eval env restStack (ifFalse restLine)
         --        _ -> Debug.crash "If expects Bool on top of stack"
         JNil :: restLine -> eval env (JNil :: stack) restLine
-        JInt x :: restLine -> eval env (JInt x :: stack) restLine
+        JFloat x :: restLine -> eval env (JFloat x :: stack) restLine
         JBool x :: restLine -> eval env (JBool x :: stack) restLine
         JSym name :: restLine ->
             let (env, stack) = apply env stack (lookup env name) in
@@ -153,9 +153,9 @@ parse s =
         "true"  -> JBool True
         "false" -> JBool False
         _       ->
-            String.toInt s
+            String.toFloat s
             |> Result.toMaybe
-            |> Maybe.map JInt
+            |> Maybe.map JFloat
             |> Maybe.withDefault (JSym s)
 
 lookup : Env -> String -> Verb
@@ -181,7 +181,9 @@ initEnv =
     , ("+",     add)
     , ("-",     sub)
     , ("*",     mul)
+    , ("/",     dvd)
     , ("pos",   pos)
+    , ("sqrt",  sqroot)
     , ("if",    branch)
     , ("eval",  doEval)
     ]
@@ -271,22 +273,32 @@ nilp env stack =
 
 add env stack =
     case stack of
-        JInt x :: JInt y :: restStack -> (env, (JInt (y + x) :: restStack))
+        JFloat x :: JFloat y :: restStack -> (env, (JFloat (y + x) :: restStack))
         _ -> Debug.crash "Stack must have 2 numbers on top"
 
 sub env stack =
     case stack of
-        JInt x :: JInt y :: restStack -> (env, (JInt (y - x) :: restStack))
+        JFloat x :: JFloat y :: restStack -> (env, (JFloat (y - x) :: restStack))
         _ -> Debug.crash "Stack must have 2 numbers on top"
 
 mul env stack =
     case stack of
-        JInt x :: JInt y :: restStack -> (env, (JInt (y * x) :: restStack))
+        JFloat x :: JFloat y :: restStack -> (env, (JFloat (y * x) :: restStack))
+        _ -> Debug.crash "Stack must have 2 numbers on top"
+
+dvd env stack =
+    case stack of
+        JFloat x :: JFloat y :: restStack -> (env, (JFloat (y / x) :: restStack))
         _ -> Debug.crash "Stack must have 2 numbers on top"
 
 pos env stack =
     case stack of
-        JInt x :: restStack -> (env, (JBool (x > 0) :: restStack))
+        JFloat x :: restStack -> (env, (JBool (x > 0) :: restStack))
+        _ -> Debug.crash "Stack must have number on top"
+
+sqroot env stack =
+    case stack of
+        JFloat x :: restStack -> (env, (JFloat (sqrt x) :: restStack))
         _ -> Debug.crash "Stack must have number on top"
 
 branch env stack =
