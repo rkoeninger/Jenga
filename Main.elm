@@ -147,6 +147,8 @@ initEnv =
     [ ("clear", clear)
     , ("dup",   dup)
     , ("drop",  drop)
+    , ("rotr",  rotr)
+    , ("rotl",  rotl)
     , ("swap",  swap)
     , ("swap3", swap3)
     , ("cons",  cons)
@@ -195,6 +197,16 @@ drop stack =
     case stack of
         _ :: restStack -> restStack
         _ -> Debug.crash "Stack must have at least 1 item"
+
+rotr stack =
+    case stack of
+        x :: y :: z :: restStack -> z :: x :: y :: restStack
+        _ -> Debug.crash "Stack must have at 3 items"
+
+rotl stack =
+    case stack of
+        x :: y :: z :: restStack -> y :: z :: x :: restStack
+        _ -> Debug.crash "Stack must have at 3 items"
 
 swap stack =
     case stack of
