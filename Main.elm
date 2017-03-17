@@ -115,13 +115,8 @@ eval env stack line =
     case line of
         JSym ":" :: JSym name :: restLine -> (define env name restLine, stack)
         JSym "[" :: restLine ->
-            let (env, restLine, stack) = collectQuote [] env restLine stack in
+            let (env, restLine, stack) = collectQuote 0 [] env restLine stack in
             eval env stack restLine
-        --JSym "if" :: restLine ->
-        --    case stack of
-        --        JBool True :: restStack -> eval env restStack (ifTrue restLine)
-        --        JBool False :: restStack -> eval env restStack (ifFalse restLine)
-        --        _ -> Debug.crash "If expects Bool on top of stack"
         JNil :: restLine -> eval env (JNil :: stack) restLine
         JFloat x :: restLine -> eval env (JFloat x :: stack) restLine
         JBool x :: restLine -> eval env (JBool x :: stack) restLine
@@ -132,10 +127,16 @@ eval env stack line =
         [] -> (env, stack)
         _ -> Debug.crash "??? Not implemented"
 
-collectQuote acc env line stack =
+collectQuote depth acc env line stack =
     case line of
-        JSym "]" :: restLine -> (env, restLine, JQuote (List.reverse acc) :: stack)
-        x :: restLine -> collectQuote (x :: acc) env restLine stack
+        JSym "[" :: restLine ->
+            collectQuote (depth + 1) (JSym "[" :: acc) env restLine stack
+        JSym "]" :: restLine ->
+            if depth == 0 then
+                (env, restLine, JQuote (List.reverse acc) :: stack)
+            else
+                collectQuote (depth - 1) (JSym "]" :: acc) env restLine stack
+        x :: restLine -> collectQuote depth (x :: acc) env restLine stack
         _ -> Debug.crash "End quote not found"
 
 apply : Env -> Stack -> Verb -> (Env, Stack)
@@ -177,6 +178,7 @@ initEnv =
     , ("consp", consp)
     , ("hd",    hd)
     , ("tl",    tl)
+    , ("zerop", zerop)
     , ("nilp",  nilp)
     , ("+",     add)
     , ("-",     sub)
@@ -189,26 +191,6 @@ initEnv =
     ]
     |> List.map (\(name, f) -> (name, Primitive f))
     |> Dict.fromList
-
-isElseSym = (==) (JSym "else")
-
-isThenSym = (==) (JSym "then")
-
-takeUntil f list =
-    case list of
-       [] -> []
-       x :: xs -> if f x then [] else x :: takeUntil f xs
-
-takeAfter f list =
-    case list of
-        [] -> []
-        x :: xs -> if f x then xs else takeAfter f xs
-
--- TODO: this won't (?) work with nested if's
-ifTrue line = takeUntil isElseSym line ++ takeAfter isThenSym line
-
--- TODO: this won't (?) work with nested if's
-ifFalse line = takeAfter isElseSym (takeUntil isThenSym line) ++ takeAfter isThenSym line
 
 clear env stack =
     case stack of
@@ -268,6 +250,12 @@ tl env stack =
 nilp env stack =
     case stack of
         JNil :: restStack -> (env, (JBool True :: restStack))
+        _ :: restStack -> (env, (JBool False :: restStack))
+        _ -> Debug.crash "Stack must have at least 1 item"
+
+zerop env stack =
+    case stack of
+        JFloat 0 :: restStack -> (env, (JBool True :: restStack))
         _ :: restStack -> (env, (JBool False :: restStack))
         _ -> Debug.crash "Stack must have at least 1 item"
 
